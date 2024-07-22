@@ -1,27 +1,14 @@
-use core::{Expression, Term};
-use std::collections::HashMap;
+use core::temp_full_parse;
 
 mod core;
-mod sll;
-
-fn reduce_full(x: Expression) -> Term {
-    let mut x = x.reduce().unwrap();
-    let mut seen = HashMap::new();
-    x.fix_names(&mut seen);
-    x
-}
 
 fn main() {
-    let a = sll::num(3);
-    let b = sll::num(5);
+    // let prog = "0100100010"; // (\ 1) (\ 1)
 
-    let root = Expression {
-        terms: vec![
-            Term::Lambda(Box::new(sll::plus())),
-            Term::Lambda(Box::new(a)),
-            Term::Lambda(Box::new(b)),
-        ],
-    };
+    let prog = "010001101000011010"; // (\ 1 1) (\ 1 1)
 
-    println!("{}", reduce_full(root));
+    let prog = temp_full_parse(prog);
+    println!("{prog}");
+
+    prog.eval();
 }
