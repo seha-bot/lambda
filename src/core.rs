@@ -1,43 +1,48 @@
-use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::RefCell,
-    collections::HashMap,
-    fmt::Display,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
 #[derive(Clone)]
-pub enum Expr {
-    Var(u32, Rc<RefCell<Option<Expr>>>),
+enum Expr {
+    Var(Rc<RefCell<Option<Expr>>>),
     Lam(Rc<RefCell<Option<Expr>>>, Box<Expr>),
     App(Box<(Expr, Expr)>),
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Expr::Var(i, _) => write!(f, "{i}"),
-            Expr::Lam(_, body) => write!(f, "λ {}", body),
-            Expr::App(app) => {
-                let (a, b) = &**app;
-
-                if a.is_var() || a.is_app() {
-                    write!(f, "{} ", a)?;
-                } else {
-                    write!(f, "({}) ", a)?;
-                }
-
-                if b.is_var() {
-                    write!(f, "{}", b)
-                } else {
-                    write!(f, "({})", b)
-                }
-            }
-        }
+        let mut ctx = HashMap::new();
+        write!(f, "{}", self.fmt_impl(&mut ctx, 1))
     }
 }
 
 impl Expr {
+    fn fmt_impl(&self, ctx: &mut HashMap<*mut Option<Expr>, u32>, depth: u32) -> String {
+        match self {
+            Expr::Var(x) => (depth - ctx.get(&x.as_ptr()).unwrap()).to_string(),
+            Expr::Lam(x, body) => {
+                let ptr = x.as_ptr();
+                ctx.insert(ptr, depth);
+                let res = format!("λ {}", body.fmt_impl(ctx, depth + 1));
+                ctx.remove(&ptr);
+                res
+            }
+            Expr::App(app) => {
+                let (a, b) = &**app;
+
+                let out = if a.is_var() || a.is_app() {
+                    format!("{} ", a.fmt_impl(ctx, depth))
+                } else {
+                    format!("({}) ", a.fmt_impl(ctx, depth))
+                };
+
+                if b.is_var() {
+                    out + &b.fmt_impl(ctx, depth)
+                } else {
+                    out + &format!("({})", b.fmt_impl(ctx, depth))
+                }
+            }
+        }
+    }
+
     fn is_app(&self) -> bool {
         if let Expr::App(_) = self {
             return true;
@@ -46,7 +51,7 @@ impl Expr {
     }
 
     fn is_var(&self) -> bool {
-        if let Expr::Var(_, _) = self {
+        if let Expr::Var(_) = self {
             return true;
         }
         false
@@ -55,16 +60,19 @@ impl Expr {
     pub fn eval(mut self) -> Expr {
         loop {
             match self {
-                Expr::Var(i, x) => {
+                Expr::Var(x) => {
                     if let Some(expr) = &*(*x).borrow() {
                         return expr.clone();
                     }
-                    return Expr::Var(i, x);
+                    return Expr::Var(x);
                 }
-                Expr::Lam(var, body) => return Expr::Lam(var, Box::new(body.eval())),
+                Expr::Lam(var, body) => {
+                    *(*var).borrow_mut() = None;
+                    return Expr::Lam(var, Box::new(body.eval()));
+                }
                 Expr::App(app) => {
-                    let f = app.0.eval();
-                    let x = app.1.eval();
+                    let f = app.0.eval(); // you only need to reduce f to WHNF
+                    let x = app.1.eval(); // f and x get evaluated multiple times. avoid this.
                     if let Expr::Lam(var, body) = f {
                         *(*var).borrow_mut() = Some(x);
                         self = *body;
@@ -81,6 +89,7 @@ impl Expr {
 // 00 - two zeros => abstraction
 // 01ab - a and b are bit sequences => apply b to a (a b)
 
+// TODO: write errors for this and don't unwrap
 fn parse<'a>(
     prog: &'a [u8],
     refs: &mut HashMap<u32, Rc<RefCell<Option<Expr>>>>,
@@ -119,54 +128,77 @@ fn parse<'a>(
                 return Err(());
             }
 
-            Ok((
-                Expr::Var(cnt, refs.get(&(depth - cnt)).unwrap().clone()),
-                prog,
-            ))
+            Ok((Expr::Var(refs.get(&(depth - cnt)).unwrap().clone()), prog))
         }
     }
-}
-
-pub fn temp_full_parse(prog: &str) -> Expr {
-    let mut refs = HashMap::new();
-    parse(prog.as_bytes(), &mut refs, 0).unwrap().0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn id() -> Expr {
-        temp_full_parse("0010")
+    const ID: &str = "0010";
+    const ZERO: &str = "000010";
+    const INC: &str = "000000011100101111011010";
+    const TRUE: &str = "0000110";
+    const FALSE: &str = ZERO;
+
+    // TODO: remove this
+    fn temp_full_parse(prog: &str) -> Expr {
+        let mut refs = HashMap::new();
+        parse(prog.as_bytes(), &mut refs, 0).unwrap().0
     }
 
-    fn zero() -> Expr {
-        temp_full_parse("000010")
-    }
-
-    fn inc() -> Expr {
-        temp_full_parse("000000011100101111011010")
-    }
-
-    fn reduce(root: Expr, expected: &'static str) {
-        let eval = root.eval();
-        assert_eq!(eval.to_string(), expected);
+    fn reduce(prog: &str, expected_prog: &str, expected: &str) {
+        let prog_ast = temp_full_parse(prog);
+        assert_eq!(prog_ast.to_string(), expected_prog);
+        assert_eq!(prog_ast.eval().to_string(), expected);
     }
 
     #[test]
     fn test_id() {
-        let id = id();
-        let root = Expr::App(Box::new((id.clone(), id)));
-        reduce(root, "λ 1");
+        let prog = format!("01{ID}{ID}");
+        reduce(&prog, "(λ 1) (λ 1)", "λ 1");
     }
 
     #[test]
     fn test_inc() {
-        let zero = zero();
-        let inc = inc();
+        let prog = format!("01{INC}01{INC}{ZERO}");
+        reduce(
+            &prog,
+            "(λ λ λ 2 (3 2 1)) ((λ λ λ 2 (3 2 1)) (λ λ 1))",
+            "λ λ 2 (2 1)",
+        );
+    }
 
-        let root = Expr::App(Box::new((inc.clone(), Expr::App(Box::new((inc, zero))))));
+    #[test]
+    fn test_pow() {
+        let two = "0000011100111010";
+        let three = "000001110011100111010";
 
-        reduce(root, "λ λ 2 (2 1)");
+        let prog = format!("01{two}{two}");
+        reduce(&prog, "(λ λ 2 (2 1)) (λ λ 2 (2 1))", "λ λ 2 (2 (2 (2 1)))");
+
+        let prog = format!("01{three}{two}");
+        reduce(
+            &prog,
+            "(λ λ 2 (2 (2 1))) (λ λ 2 (2 1))",
+            "λ λ 2 (2 (2 (2 (2 (2 (2 (2 1)))))))",
+        );
+    }
+
+    #[test]
+    fn test_even() {
+        let not = format!("00010110{FALSE}{TRUE}");
+        let even = format!("00010110{not}{TRUE}");
+        let even_ast = temp_full_parse(&even);
+        let expected = ["λ λ 2", "λ λ 1"];
+
+        let mut x = temp_full_parse(ZERO);
+        for i in 0..=100 {
+            let query = Expr::App(Box::new((even_ast.clone(), x.clone())));
+            assert_eq!(query.eval().to_string(), expected[i % 2]);
+            x = Expr::App(Box::new((temp_full_parse(INC), x)));
+        }
     }
 }
