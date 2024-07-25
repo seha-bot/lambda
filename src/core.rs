@@ -57,7 +57,7 @@ impl Expr {
         false
     }
 
-    pub fn eval(mut self) -> Expr {
+    fn eval(mut self) -> Expr {
         loop {
             match self {
                 Expr::Var(x) => {
@@ -89,48 +89,63 @@ impl Expr {
 // 00 - two zeros => abstraction
 // 01ab - a and b are bit sequences => apply b to a (a b)
 
-// TODO: write errors for this and don't unwrap
-fn parse<'a>(
+#[derive(Debug)]
+pub enum ParseError {
+    ZeroBrujinIndex,
+    BrujinIndexOutOfBounds,
+    IncompleteStatement,
+}
+
+fn parse_impl<'a>(
     prog: &'a [u8],
     refs: &mut HashMap<u32, Rc<RefCell<Option<Expr>>>>,
     depth: u32,
-) -> Result<(Expr, &'a [u8]), ()> {
+) -> Result<(Expr, &'a [u8]), ParseError> {
     match prog {
         [b'0', b'0', tail @ ..] => {
             let x = Rc::new(RefCell::new(None));
             refs.insert(depth, x.clone());
-            let (body, tail) = parse(tail, refs, depth + 1)?;
+            let (body, tail) = parse_impl(tail, refs, depth + 1)?;
             refs.remove(&depth);
             Ok((Expr::Lam(x, Box::new(body)), tail))
         }
         [b'0', b'1', tail @ ..] => {
-            let (a, tail) = parse(tail, refs, depth)?;
-            let (b, tail) = parse(tail, refs, depth)?;
+            let (a, tail) = parse_impl(tail, refs, depth)?;
+            let (b, tail) = parse_impl(tail, refs, depth)?;
             Ok((Expr::App(Box::new((a, b))), tail))
         }
         mut prog => {
-            if *prog.first().unwrap_or(&b'0') == b'0' {
-                return Err(());
-            }
-
             let mut cnt = 0;
             while let Some(b'1') = prog.first() {
-                cnt += 1;
                 prog = &prog[1..];
+                cnt += 1;
             }
 
-            if let None = prog.first() {
-                return Err(());
-            }
-            prog = &prog[1..];
+            if let Some(b'0') = prog.first() {
+                prog = &prog[1..];
 
-            if cnt == 0 {
-                return Err(());
-            }
+                if cnt == 0 {
+                    return Err(ParseError::ZeroBrujinIndex);
+                }
 
-            Ok((Expr::Var(refs.get(&(depth - cnt)).unwrap().clone()), prog))
+                match refs.get(&(depth.wrapping_sub(cnt))) {
+                    Some(x) => Ok((Expr::Var(x.clone()), prog)),
+                    None => Err(ParseError::BrujinIndexOutOfBounds),
+                }
+            } else {
+                Err(ParseError::IncompleteStatement)
+            }
         }
     }
+}
+
+fn parse(prog: &str) -> Result<Expr, ParseError> {
+    let mut refs = HashMap::new();
+    Ok(parse_impl(prog.as_bytes(), &mut refs, 0)?.0)
+}
+
+pub fn run(prog: &str) -> Result<String, ParseError> {
+    Ok(parse(prog)?.eval().to_string())
 }
 
 #[cfg(test)]
@@ -142,63 +157,84 @@ mod tests {
     const INC: &str = "000000011100101111011010";
     const TRUE: &str = "0000110";
     const FALSE: &str = ZERO;
+    const PAIR: &str = "0000000101101110110";
+    const FST: &str = "0001100000110";
+    const SND: &str = "000110000010";
 
-    // TODO: remove this
-    fn temp_full_parse(prog: &str) -> Expr {
-        let mut refs = HashMap::new();
-        parse(prog.as_bytes(), &mut refs, 0).unwrap().0
-    }
+    type Result = core::result::Result<(), ParseError>;
 
-    fn reduce(prog: &str, expected_prog: &str, expected: &str) {
-        let prog_ast = temp_full_parse(prog);
+    fn reduce(prog: &str, expected_prog: &str, expected: &str) -> Result {
+        let prog_ast = parse(prog)?;
         assert_eq!(prog_ast.to_string(), expected_prog);
         assert_eq!(prog_ast.eval().to_string(), expected);
+        Ok(())
     }
 
     #[test]
-    fn test_id() {
+    fn test_id() -> Result {
         let prog = format!("01{ID}{ID}");
-        reduce(&prog, "(λ 1) (λ 1)", "λ 1");
+        reduce(&prog, "(λ 1) (λ 1)", "λ 1")
     }
 
     #[test]
-    fn test_inc() {
+    fn test_inc() -> Result {
         let prog = format!("01{INC}01{INC}{ZERO}");
         reduce(
             &prog,
             "(λ λ λ 2 (3 2 1)) ((λ λ λ 2 (3 2 1)) (λ λ 1))",
             "λ λ 2 (2 1)",
-        );
+        )
     }
 
     #[test]
-    fn test_pow() {
+    fn test_pow() -> Result {
         let two = "0000011100111010";
         let three = "000001110011100111010";
 
         let prog = format!("01{two}{two}");
-        reduce(&prog, "(λ λ 2 (2 1)) (λ λ 2 (2 1))", "λ λ 2 (2 (2 (2 1)))");
+        reduce(&prog, "(λ λ 2 (2 1)) (λ λ 2 (2 1))", "λ λ 2 (2 (2 (2 1)))")?;
 
         let prog = format!("01{three}{two}");
         reduce(
             &prog,
             "(λ λ 2 (2 (2 1))) (λ λ 2 (2 1))",
             "λ λ 2 (2 (2 (2 (2 (2 (2 (2 1)))))))",
-        );
+        )
     }
 
     #[test]
-    fn test_even() {
+    fn test_even() -> Result {
         let not = format!("00010110{FALSE}{TRUE}");
         let even = format!("00010110{not}{TRUE}");
-        let even_ast = temp_full_parse(&even);
+        let inc_ast = parse(INC)?;
+        let even_ast = parse(&even)?;
         let expected = ["λ λ 2", "λ λ 1"];
 
-        let mut x = temp_full_parse(ZERO);
+        let mut x = parse(ZERO)?;
         for i in 0..=100 {
             let query = Expr::App(Box::new((even_ast.clone(), x.clone())));
             assert_eq!(query.eval().to_string(), expected[i % 2]);
-            x = Expr::App(Box::new((temp_full_parse(INC), x)));
+            x = Expr::App(Box::new((inc_ast.clone(), x)));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_pair() -> Result {
+        let zero_and_one = format!("0101{PAIR}{ZERO}01{INC}{ZERO}");
+
+        let prog = format!("01{SND}{zero_and_one}");
+        reduce(
+            &prog,
+            "(λ 1 (λ λ 1)) ((λ λ λ 1 3 2) (λ λ 1) ((λ λ λ 2 (3 2 1)) (λ λ 1)))",
+            "λ λ 2 1",
+        )?;
+
+        let prog = format!("01{FST}{zero_and_one}");
+        reduce(
+            &prog,
+            "(λ 1 (λ λ 2)) ((λ λ λ 1 3 2) (λ λ 1) ((λ λ λ 2 (3 2 1)) (λ λ 1)))",
+            "λ λ 1",
+        )
     }
 }
