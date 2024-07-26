@@ -1,4 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+use alloc::rc::Rc;
+use core::{cell::RefCell, fmt::Display};
+
+// TODO: you can remove HashMap entirely by
+// rewriting with vectors
+use std::collections::HashMap;
 
 #[derive(Clone)]
 enum Expr {
@@ -8,7 +13,7 @@ enum Expr {
 }
 
 impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ctx = HashMap::new();
         write!(f, "{}", self.fmt_impl(&mut ctx, 1))
     }
@@ -17,7 +22,7 @@ impl Display for Expr {
 impl Expr {
     fn fmt_impl(&self, ctx: &mut HashMap<*mut Option<Expr>, u32>, depth: u32) -> String {
         match self {
-            Expr::Var(x) => (depth - ctx.get(&x.as_ptr()).unwrap()).to_string(),
+            Expr::Var(x) => (depth - ctx.get(&x.as_ptr()).expect("incorrect AST")).to_string(),
             Expr::Lam(x, body) => {
                 let ptr = x.as_ptr();
                 let old = ctx.insert(ptr, depth);
@@ -157,7 +162,7 @@ fn parse_impl<'a>(
     match prog {
         [b'0', b'0', tail @ ..] => {
             let x = Rc::new(RefCell::new(None));
-            refs.insert(depth, x.clone());
+            refs.insert(depth, Rc::clone(&x));
             let (body, tail) = parse_impl(tail, refs, depth + 1)?;
             refs.remove(&depth);
             Ok((Expr::Lam(x, Box::new(body)), tail))
@@ -182,7 +187,7 @@ fn parse_impl<'a>(
                 }
 
                 match refs.get(&(depth.wrapping_sub(cnt))) {
-                    Some(x) => Ok((Expr::Var(x.clone()), prog)),
+                    Some(x) => Ok((Expr::Var(Rc::clone(x)), prog)),
                     None => Err(ParseError::BruijnIndexOutOfBounds),
                 }
             } else {

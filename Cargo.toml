@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+std_instead_of_alloc = "warn"
+alloc_instead_of_core = "warn"
+std_instead_of_core = "warn"
+clone-on-ref-ptr = "deny"
