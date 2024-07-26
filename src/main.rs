@@ -1,8 +1,7 @@
 extern crate alloc;
+mod core;
 
 use core::run;
-
-mod core;
 
 fn main() {
     match run("0100100010") {

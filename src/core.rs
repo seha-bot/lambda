@@ -1,10 +1,6 @@
 use alloc::rc::Rc;
 use core::{cell::RefCell, fmt::Display};
 
-// TODO: you can remove HashMap entirely by
-// rewriting with vectors
-use std::collections::HashMap;
-
 #[derive(Clone)]
 enum Expr {
     Var(Rc<RefCell<Option<Expr>>>),
@@ -14,23 +10,24 @@ enum Expr {
 
 impl Display for Expr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ctx = HashMap::new();
+        let mut ctx = Vec::new();
         write!(f, "{}", self.fmt_impl(&mut ctx, 1))
     }
 }
 
 impl Expr {
-    fn fmt_impl(&self, ctx: &mut HashMap<*mut Option<Expr>, u32>, depth: u32) -> String {
+    fn fmt_impl(&self, ctx: &mut Vec<*mut Option<Expr>>, depth: usize) -> String {
         match self {
-            Expr::Var(x) => (depth - ctx.get(&x.as_ptr()).expect("incorrect AST")).to_string(),
+            Expr::Var(x) => {
+                let i = ctx.iter().rev().position(|&e| e == x.as_ptr());
+                let i = ctx.len() - i.expect("incorrect AST");
+                assert!(i < depth, "incorrect AST");
+                (depth - i).to_string()
+            }
             Expr::Lam(x, body) => {
-                let ptr = x.as_ptr();
-                let old = ctx.insert(ptr, depth);
+                ctx.push(x.as_ptr());
                 let res = format!("λ {}", body.fmt_impl(ctx, depth + 1));
-                ctx.remove(&ptr);
-                if let Some(old) = old {
-                    ctx.insert(ptr, old);
-                }
+                ctx.pop();
                 res
             }
             Expr::App(app) => {
@@ -156,15 +153,15 @@ pub enum ParseError {
 
 fn parse_impl<'a>(
     prog: &'a [u8],
-    refs: &mut HashMap<u32, Rc<RefCell<Option<Expr>>>>,
-    depth: u32,
+    refs: &mut Vec<Rc<RefCell<Option<Expr>>>>,
+    depth: usize,
 ) -> Result<(Expr, &'a [u8]), ParseError> {
     match prog {
         [b'0', b'0', tail @ ..] => {
             let x = Rc::new(RefCell::new(None));
-            refs.insert(depth, Rc::clone(&x));
+            refs.push(Rc::clone(&x));
             let (body, tail) = parse_impl(tail, refs, depth + 1)?;
-            refs.remove(&depth);
+            refs.pop();
             Ok((Expr::Lam(x, Box::new(body)), tail))
         }
         [b'0', b'1', tail @ ..] => {
@@ -186,7 +183,7 @@ fn parse_impl<'a>(
                     return Err(ParseError::ZeroBruijnIndex);
                 }
 
-                match refs.get(&(depth.wrapping_sub(cnt))) {
+                match refs.get(depth.wrapping_sub(cnt)) {
                     Some(x) => Ok((Expr::Var(Rc::clone(x)), prog)),
                     None => Err(ParseError::BruijnIndexOutOfBounds),
                 }
@@ -198,7 +195,7 @@ fn parse_impl<'a>(
 }
 
 fn parse(prog: &str) -> Result<Expr, ParseError> {
-    let mut refs = HashMap::new();
+    let mut refs = Vec::new();
     Ok(parse_impl(prog.as_bytes(), &mut refs, 0)?.0)
 }
 
