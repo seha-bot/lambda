@@ -278,7 +278,7 @@ mod tests {
         let mut x = parse(ZERO)?;
         for i in 0..=100 {
             let query = Expr::App(Box::new((even_ast.clone(), x.clone())));
-            assert_eq!(query.eval_lazy().to_string(), expected[i % 2]);
+            assert_eq!(query.eval_full().to_string(), expected[i % 2]);
             x = Expr::App(Box::new((inc_ast.clone(), x)));
         }
         Ok(())
