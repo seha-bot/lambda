@@ -1,4 +1,5 @@
 use alloc::rc::Rc;
+use const_format::formatcp;
 use core::{cell::RefCell, fmt::Display};
 
 #[derive(Clone)]
@@ -44,6 +45,28 @@ impl Expr {
                 } else {
                     out + &format!("({})", b.fmt_impl(ctx, depth))
                 }
+            }
+        }
+    }
+
+    fn fmt_blc(&self, ctx: &mut Vec<*mut Option<Expr>>, depth: usize) -> String {
+        match self {
+            Expr::Var(x) => {
+                let i = ctx.iter().rev().position(|&e| e == x.as_ptr());
+                let i = ctx.len() - i.expect("incorrect AST");
+                assert!(i < depth, "incorrect AST");
+
+                (0..depth - i).map(|_| '1').collect::<String>() + "0"
+            }
+            Expr::Lam(x, body) => {
+                ctx.push(x.as_ptr());
+                let res = format!("00{}", body.fmt_blc(ctx, depth + 1));
+                ctx.pop();
+                res
+            }
+            Expr::App(app) => {
+                let (a, b) = &**app;
+                format!("01{}{}", a.fmt_blc(ctx, depth), b.fmt_blc(ctx, depth))
             }
         }
     }
@@ -199,14 +222,118 @@ fn parse(prog: &str) -> Result<Expr, ParseError> {
     Ok(parse_impl(prog.as_bytes(), &mut refs, 0)?.0)
 }
 
-pub fn run(prog: &str) -> Result<String, ParseError> {
-    Ok(parse(prog)?.eval_lazy().eval_full().to_string())
+#[derive(Clone, Copy)]
+pub enum OutputFmt {
+    AsciiBinary,
+    HumanReadable,
+    Parsed,
+}
+
+const PAIR_BLANK: &str = "00010110";
+const PAIR_END: &str = "000010";
+const TRUE: &str = "0000110";
+const FALSE: &str = "000010";
+const PAIR_TRUE: &str = formatcp!("{PAIR_BLANK}{TRUE}");
+const PAIR_FALSE: &str = formatcp!("{PAIR_BLANK}{FALSE}");
+
+fn byte_to_blc(mut x: u8) -> String {
+    let mut data = [false; 8];
+
+    for i in 0..8 {
+        data[7 - i] = x % 2 == 1;
+        x /= 2;
+    }
+
+    let data = data.iter().fold(String::new(), |mut acc, &x| {
+        acc.push_str(if x { PAIR_TRUE } else { PAIR_FALSE });
+        acc
+    });
+
+    format!("{data}{PAIR_END}")
+}
+
+fn blc_to_byte(mut data: &str) -> (u8, usize) {
+    let mut x = 0;
+    let mut bytes_read = 0;
+
+    for _ in 0..8 {
+        x <<= 1;
+        if data.starts_with(PAIR_TRUE) {
+            x |= 1;
+            data = &data[PAIR_TRUE.len()..];
+            bytes_read += PAIR_TRUE.len();
+        } else if data.starts_with(PAIR_FALSE) {
+            data = &data[PAIR_FALSE.len()..];
+            bytes_read += PAIR_FALSE.len();
+        } else {
+            panic!("bad blc in byte loop");
+        }
+    }
+
+    if data.starts_with(PAIR_END) {
+        (x, bytes_read + PAIR_END.len())
+    } else {
+        panic!("bad blc in byte end")
+    }
+}
+
+fn bytes_to_blc(buf: &[u8]) -> String {
+    let data = buf.iter().fold(String::new(), |mut acc, x| {
+        acc.push_str(PAIR_BLANK);
+        acc.push_str(&byte_to_blc(*x));
+        acc
+    });
+
+    format!("{data}{PAIR_END}")
+}
+
+fn blc_to_bytes(mut data: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    loop {
+        if data.starts_with(PAIR_BLANK) {
+            data = &data[PAIR_BLANK.len()..];
+            let (x, bytes_read) = blc_to_byte(data);
+            out.push(x);
+            data = &data[bytes_read..];
+        } else if data == PAIR_END {
+            break;
+        } else {
+            panic!("bad blc in bytes loop");
+        }
+    }
+
+    out
+}
+
+pub fn run(prog: &str, args: Option<&str>, output_fmt: OutputFmt) -> Result<String, ParseError> {
+    let prog = if let Some(args) = args {
+        Expr::App(Box::new((
+            parse(prog)?,
+            parse(&bytes_to_blc(args.as_bytes()))?,
+        )))
+    } else {
+        parse(prog)?
+    };
+
+    let expr = prog.eval_lazy().eval_full();
+
+    let mut ctx = Vec::new();
+    Ok(match output_fmt {
+        OutputFmt::AsciiBinary => expr.fmt_blc(&mut ctx, 1),
+        OutputFmt::HumanReadable => expr.to_string(),
+        OutputFmt::Parsed => blc_to_bytes(&expr.fmt_blc(&mut ctx, 1))
+            .iter()
+            .map(|&x| x as char)
+            .collect::<String>(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // TODO: use formatcp here
     const ID: &str = "0010";
     const ZERO: &str = "000010";
     const ONE: &str = "00000111010";
@@ -330,5 +457,14 @@ mod tests {
             "(λ λ λ 1 3 2) (λ λ 2 1) ((λ λ λ 1 3 2) (λ λ 2 (2 1)) ((λ λ λ 1 3 2) (λ λ 2 (2 (2 1))) (λ λ 1))) ((λ (λ 2 (1 1)) (λ 2 (1 1))) (λ λ λ λ 2 4 ((λ λ 2 (λ λ λ 2 (3 2 1)) 1) 1 3))) (λ λ 1)",
             "λ λ 2 (2 (2 (2 (2 (2 1)))))",
         )
+    }
+
+    #[test]
+    fn test_args() -> Result {
+        let reverse = format!("000000000101110111100101{PAIR}111010");
+        let prog = format!("0001011001{Y}{reverse}{ZERO}");
+        let out = run(&prog, Some("Hello World!"), OutputFmt::Parsed)?;
+        assert_eq!(out, "!dlroW olleH");
+        Ok(())
     }
 }

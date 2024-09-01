@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+const_format = "0.2.32"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
