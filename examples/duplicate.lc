@@ -1,0 +1,8 @@
+Y = \f.(\x.f (x x)) (\x.f (x x));
+PAIR = \a.\b.(\f.f a b);
+NIL = \f.\x.x;
+
+DUPLICATE = \self.\x.\xs.\acc. xs self (PAIR x (PAIR x acc));
+REVERSE = \self.\x.\xs.\acc. xs self (PAIR x acc);
+
+\arg.(arg (Y DUPLICATE) NIL) (Y REVERSE) NIL;

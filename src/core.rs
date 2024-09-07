@@ -1,12 +1,23 @@
 use alloc::rc::Rc;
 use const_format::formatcp;
 use core::{cell::RefCell, fmt::Display};
+use std::fmt::Debug;
 
 #[derive(Clone)]
-enum Expr {
+pub enum Expr {
     Var(Rc<RefCell<Option<Expr>>>),
     Lam(Rc<RefCell<Option<Expr>>>, Box<Expr>),
     App(Box<(Expr, Expr)>),
+}
+
+impl Debug for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Var(arg0) => write!(f, "{}", arg0.as_ptr() as usize % 1000),
+            Self::Lam(arg0, arg1) => write!(f, "\\{}. {arg1:?}", arg0.as_ptr() as usize % 1000),
+            Self::App(arg0) => write!(f, "({:?}) ({:?})", arg0.0, arg0.1),
+        }
+    }
 }
 
 impl Display for Expr {
@@ -56,7 +67,10 @@ impl Expr {
                 let i = ctx.len() - i.expect("incorrect AST");
                 assert!(i < depth, "incorrect AST");
 
-                (0..depth - i).map(|_| '1').collect::<String>() + "0"
+                (0..depth - i).fold(String::new(), |mut acc, _| {
+                    acc.push('1');
+                    acc
+                }) + "0"
             }
             Expr::Lam(x, body) => {
                 ctx.push(x.as_ptr());
@@ -86,6 +100,7 @@ impl Expr {
     }
 
     // I'm pretty sure this can be written without recursion
+    // Fuck that. Can this function be removed completely?
     fn eval_var_refs(&mut self) {
         match self {
             Expr::Var(x) => {
@@ -314,6 +329,30 @@ pub fn run(prog: &str, args: Option<&str>, output_fmt: OutputFmt) -> Result<Stri
         )))
     } else {
         parse(prog)?
+    };
+
+    let expr = prog.eval_lazy().eval_full();
+
+    let mut ctx = Vec::new();
+    Ok(match output_fmt {
+        OutputFmt::AsciiBinary => expr.fmt_blc(&mut ctx, 1),
+        OutputFmt::HumanReadable => expr.to_string(),
+        OutputFmt::Parsed => blc_to_bytes(&expr.fmt_blc(&mut ctx, 1))
+            .iter()
+            .map(|&x| x as char)
+            .collect::<String>(),
+    })
+}
+
+pub fn run_expr_experimental(
+    prog: Expr,
+    args: Option<&str>,
+    output_fmt: OutputFmt,
+) -> Result<String, ParseError> {
+    let prog = if let Some(args) = args {
+        Expr::App(Box::new((prog, parse(&bytes_to_blc(args.as_bytes()))?)))
+    } else {
+        prog
     };
 
     let expr = prog.eval_lazy().eval_full();
