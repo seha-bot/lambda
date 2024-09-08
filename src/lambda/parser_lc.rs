@@ -1,4 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use alloc::rc::Rc;
+use core::cell::RefCell;
+use std::collections::HashMap;
 
 use nom::{
     branch::alt,
@@ -10,8 +12,27 @@ use nom::{
     sequence::{delimited, pair, terminated},
     IResult,
 };
+use thiserror::Error;
 
-use crate::core::Expr;
+use super::runner::Expr;
+
+// TODO: add better error messages after replacing nom
+#[derive(Error, Debug, Clone, Copy)]
+pub enum ParseError {
+    #[error("something happened during preprocessing")]
+    Preprocess,
+    #[error("something happened during parsing")]
+    Final,
+}
+
+pub fn parse(s: &str) -> Result<Expr, ParseError> {
+    let (_, prog) = preprocess(s).map_err(|_| ParseError::Preprocess)?;
+
+    let mut env = HashMap::new();
+    lambda(&mut env, &prog)
+        .map(|(_, res)| res)
+        .map_err(|_| ParseError::Final)
+}
 
 fn identifier(s: &str) -> IResult<&str, &str> {
     recognize(pair(
@@ -64,7 +85,7 @@ fn preprocess(s: &str) -> IResult<&str, String> {
 
 type Env<'a> = HashMap<&'a str, Rc<RefCell<Option<Expr>>>>;
 
-fn var<'a, 'b>(env: &'b mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
+fn var<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
     let (s, key) = terminated(identifier, multispace0)(s)?;
     if let Some(key_ref) = env.get(key) {
         return Ok((s, Expr::Var(Rc::clone(key_ref))));
@@ -77,7 +98,7 @@ fn var<'a, 'b>(env: &'b mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
     )))
 }
 
-fn lambda<'a, 'b>(env: &'b mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
+fn lambda<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
     let (s, _) = terminated(char('\\'), multispace0)(s)?;
     let (s, key) = terminated(identifier, multispace0)(s)?;
     let (s, _) = terminated(char('.'), multispace0)(s)?;
@@ -120,20 +141,4 @@ fn expr<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str,
 
         Ok((s, expr))
     }
-}
-
-// TODO: add better error messages after replacing nom
-#[derive(Debug)]
-pub enum ParseLCError {
-    Preprocess,
-    Final,
-}
-
-pub fn parse_lc(s: &str) -> Result<Expr, ParseLCError> {
-    let (_, prog) = preprocess(s).map_err(|_| ParseLCError::Preprocess)?;
-
-    let mut env = HashMap::new();
-    lambda(&mut env, &prog)
-        .map(|(_, res)| res)
-        .map_err(|_| ParseLCError::Final)
 }

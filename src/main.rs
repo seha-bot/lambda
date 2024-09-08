@@ -1,45 +1,68 @@
-use core::run_expr_experimental;
-use std::{env, fs, io, process::exit};
+use std::{fs, io, path::PathBuf, process::exit};
+
+use clap::Parser;
+use lambda::{InputFmt, OutputFmt};
 
 extern crate alloc;
-mod core;
-mod parser;
+mod lambda;
+
+/// A lambda calculus parser & runner.
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    path: PathBuf,
+    arg: Option<String>,
+
+    #[arg(long, default_value_t = String::from("standard"))]
+    input_fmt: String,
+
+    #[arg(long, default_value_t = String::from("standard"))]
+    output_fmt: String,
+}
 
 fn main() -> Result<(), io::Error> {
-    let args = env::args().skip(1).take(2).collect::<Vec<_>>();
+    let args = Args::parse();
 
-    let Some(path) = args.first() else {
-        eprintln!("Must specify path to file to be run.");
-        exit(1)
+    let input_fmt = match args.input_fmt.as_str() {
+        "binary" => InputFmt::Binary,
+        "standard" => InputFmt::Standard,
+        other => {
+            eprintln!("{other:?} not recognised as an input format.");
+            eprintln!("Use one of the following: binary, standard.");
+            exit(1)
+        }
     };
 
-    let content = fs::read_to_string(path)?;
-
-    match parser::parse_lc(&content) {
-        Ok(expr) => {
-            println!("Your program: {expr:?}");
-            println!("Your program: {expr}");
-            println!("Output:");
-            match run_expr_experimental(
-                expr,
-                args.get(1).map(|x| x.as_str()),
-                core::OutputFmt::Parsed,
-            ) {
-                Ok(out) => println!("{out}"),
-                Err(_) => {
-                    eprintln!("Argument parsing failed. You shouldn't be seeing this!");
-                    exit(1);
-                }
-            }
+    let output_fmt = match args.output_fmt.as_str() {
+        "binary" => OutputFmt::Binary,
+        "debruijn" => OutputFmt::DeBruijn,
+        "standard" => OutputFmt::Standard,
+        other => {
+            eprintln!("{other:?} not recognised as an output format.");
+            eprintln!("Use one of the following: binary, debruijn, standard.");
+            exit(1)
         }
+    };
+
+    let content = fs::read_to_string(args.path)?;
+
+    let output = lambda::run(
+        &content,
+        match &args.arg {
+            Some(x) => Some(x.as_str()),
+            None => None,
+        },
+        input_fmt,
+        output_fmt,
+    );
+
+    match output {
+        Ok(output) => println!("{output}"),
         Err(err) => {
-            eprintln!("An error occured during parsing ({err:?}). Error messages are not implemented yet.");
-            exit(1);
+            eprintln!("{err}");
+            exit(1)
         }
     }
 
     Ok(())
 }
-
-// \arg.PAIR (arg (\x.\y.x)) arg;
-// \arg. (\a. \b. \f. (a) (b)) (arg (\x.\y.x)) arg
