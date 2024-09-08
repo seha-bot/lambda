@@ -7,8 +7,6 @@ pub enum ParseError {
     NonBooleanValue,
     #[error("found a list which doesn't end with NIL")]
     UndelimitedList,
-    #[error("bad list format")]
-    BadListFormat,
 }
 
 pub fn bytes_to_blc(buf: &[u8]) -> String {
@@ -21,23 +19,29 @@ pub fn bytes_to_blc(buf: &[u8]) -> String {
     format!("{data}{PAIR_END}")
 }
 
-pub fn blc_to_bytes(mut data: &str) -> Result<Vec<u8>, ParseError> {
-    let mut out = Vec::new();
+pub fn blc_to_byte(mut data: &str) -> Result<(u8, usize), ParseError> {
+    let mut x = 0;
+    let mut bytes_read = 0;
 
-    loop {
-        if data.starts_with(PAIR_BLANK) {
-            data = &data[PAIR_BLANK.len()..];
-            let (x, bytes_read) = blc_to_byte(data)?;
-            out.push(x);
-            data = &data[bytes_read..];
-        } else if data == PAIR_END {
-            break;
+    for _ in 0..8 {
+        x <<= 1;
+        if data.starts_with(PAIR_TRUE) {
+            x |= 1;
+            data = &data[PAIR_TRUE.len()..];
+            bytes_read += PAIR_TRUE.len();
+        } else if data.starts_with(PAIR_FALSE) {
+            data = &data[PAIR_FALSE.len()..];
+            bytes_read += PAIR_FALSE.len();
         } else {
-            return Err(ParseError::BadListFormat);
+            return Err(ParseError::NonBooleanValue);
         }
     }
 
-    Ok(out)
+    if data.starts_with(PAIR_END) {
+        Ok((x, bytes_read + PAIR_END.len()))
+    } else {
+        Err(ParseError::UndelimitedList)
+    }
 }
 
 const PAIR_BLANK: &str = "00010110";
@@ -61,29 +65,4 @@ fn byte_to_blc(mut x: u8) -> String {
     });
 
     format!("{data}{PAIR_END}")
-}
-
-fn blc_to_byte(mut data: &str) -> Result<(u8, usize), ParseError> {
-    let mut x = 0;
-    let mut bytes_read = 0;
-
-    for _ in 0..8 {
-        x <<= 1;
-        if data.starts_with(PAIR_TRUE) {
-            x |= 1;
-            data = &data[PAIR_TRUE.len()..];
-            bytes_read += PAIR_TRUE.len();
-        } else if data.starts_with(PAIR_FALSE) {
-            data = &data[PAIR_FALSE.len()..];
-            bytes_read += PAIR_FALSE.len();
-        } else {
-            return Err(ParseError::NonBooleanValue);
-        }
-    }
-
-    if data.starts_with(PAIR_END) {
-        Ok((x, bytes_read + PAIR_END.len()))
-    } else {
-        Err(ParseError::UndelimitedList)
-    }
 }

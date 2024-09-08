@@ -1,3 +1,7 @@
+# NOTE (for me)
+
+Don't forget about output-fmt. You disabled it to refactor things and probably forgot to enable it.
+
 # DEFECTS
 
 This compiles fine.

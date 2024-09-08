@@ -1,0 +1,12 @@
+Y = \f.(\x.f (x x)) (\x.f (x x));
+
+PAIR = \a.\b.\f. f a b;
+
+REPEAT_IMPL = \self.\x.PAIR x (self x);
+REPEAT = \x.(Y REPEAT_IMPL) x;
+
+FST = \p.p (\x.\y.x);
+
+\arg. REPEAT (FST arg);
+
+Everything down here is a comment
