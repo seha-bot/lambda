@@ -196,7 +196,7 @@ mod tests {
 
     fn reduce(prog: &str, expected_prog: &str, expected: &str) -> Result {
         let prog_ast = parse(prog)?;
-        assert_eq!(prog_ast.fmt_blc(), expected_prog);
+        assert_eq!(prog_ast.fmt_bruijin(), expected_prog);
         assert_eq!(prog_ast.eval_lazy().eval_full().fmt_bruijin(), expected);
         Ok(())
     }
