@@ -1,0 +1,21 @@
+Y = \f.(\x.f (x x)) (\x.f (x x));
+
+ID = \x.x;
+NIL = \x.ID;
+PAIR = \a.\b.\f. f a b;
+
+MAP_IMPL = \self.\f.\x.\xs.\_. PAIR (f x) (xs (self f) NIL);
+MAP = \f.\xs. xs (Y MAP_IMPL f) NIL;
+
+CONCAT_IMPL = \self.\x.\xs.\acc. PAIR x (xs self acc);
+CONCAT = \a.\b.a (Y CONCAT_IMPL) b;
+
+FOLDL_IMPL = \self.\f.\x.\xs.\acc. xs (self f) (f acc x);
+FOLDL = \f.\init.\xs. xs (Y FOLDL_IMPL f) init;
+
+FOLDR_IMPL = \self.\f.\x.\xs.\acc. f x (xs (self f) acc);
+FOLDR = \f.\init.\xs. xs (Y FOLDR_IMPL f) init;
+
+\arg. FOLDL CONCAT NIL (MAP (\x.PAIR x (PAIR x NIL)) arg);
+
+Everything down here is a comment

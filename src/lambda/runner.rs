@@ -28,11 +28,11 @@ impl Expr {
                 }
                 Expr::Lam(var, body) => {
                     *(*var).borrow_mut() = None;
-                    return Expr::Lam(var, Box::new(body.eval_full()));
+                    return Expr::Lam(var, Box::new(body.eval_lazy().eval_full()));
                 }
                 Expr::App(app) => {
-                    let f = app.0.eval_full();
-                    let x = app.1.eval_full();
+                    let f = app.0.eval_lazy().eval_full();
+                    let x = app.1.eval_lazy().eval_full();
                     if let Expr::Lam(var, body) = f {
                         *(*var).borrow_mut() = Some(x);
                         self = *body;
@@ -44,9 +44,9 @@ impl Expr {
         }
     }
 
-    pub fn fmt_bruijin(&self) -> String {
+    pub fn fmt_bruijn(&self) -> String {
         let mut ctx = Vec::new();
-        self.fmt_bruijin_impl(&mut ctx, 1)
+        self.fmt_bruijn_impl(&mut ctx, 1)
     }
 
     pub fn fmt_blc(&self) -> String {
@@ -54,7 +54,7 @@ impl Expr {
         self.fmt_blc_impl(&mut ctx, 1)
     }
 
-    fn fmt_bruijin_impl(&self, ctx: &mut Vec<*mut Option<Expr>>, depth: usize) -> String {
+    fn fmt_bruijn_impl(&self, ctx: &mut Vec<*mut Option<Expr>>, depth: usize) -> String {
         match self {
             Expr::Var(x) => {
                 let i = ctx.iter().rev().position(|&e| e == x.as_ptr());
@@ -64,7 +64,7 @@ impl Expr {
             }
             Expr::Lam(x, body) => {
                 ctx.push(x.as_ptr());
-                let res = format!("λ {}", body.fmt_bruijin_impl(ctx, depth + 1));
+                let res = format!("λ {}", body.fmt_bruijn_impl(ctx, depth + 1));
                 ctx.pop();
                 res
             }
@@ -72,15 +72,15 @@ impl Expr {
                 let (a, b) = &**app;
 
                 let out = if a.is_var() || a.is_app() {
-                    format!("{} ", a.fmt_bruijin_impl(ctx, depth))
+                    format!("{} ", a.fmt_bruijn_impl(ctx, depth))
                 } else {
-                    format!("({}) ", a.fmt_bruijin_impl(ctx, depth))
+                    format!("({}) ", a.fmt_bruijn_impl(ctx, depth))
                 };
 
                 if b.is_var() {
-                    out + &b.fmt_bruijin_impl(ctx, depth)
+                    out + &b.fmt_bruijn_impl(ctx, depth)
                 } else {
-                    out + &format!("({})", b.fmt_bruijin_impl(ctx, depth))
+                    out + &format!("({})", b.fmt_bruijn_impl(ctx, depth))
                 }
             }
         }
@@ -196,8 +196,8 @@ mod tests {
 
     fn reduce(prog: &str, expected_prog: &str, expected: &str) -> Result {
         let prog_ast = parse(prog)?;
-        assert_eq!(prog_ast.fmt_bruijin(), expected_prog);
-        assert_eq!(prog_ast.eval_lazy().eval_full().fmt_bruijin(), expected);
+        assert_eq!(prog_ast.fmt_bruijn(), expected_prog);
+        assert_eq!(prog_ast.eval_lazy().eval_full().fmt_bruijn(), expected);
         Ok(())
     }
 
@@ -254,7 +254,7 @@ mod tests {
         let mut x = parse(ZERO)?;
         for i in 0..=100 {
             let query = Expr::App(Box::new((even_ast.clone(), x.clone())));
-            assert_eq!(query.eval_full().fmt_bruijin(), expected[i % 2]);
+            assert_eq!(query.eval_full().fmt_bruijn(), expected[i % 2]);
             x = Expr::App(Box::new((inc_ast.clone(), x)));
         }
         Ok(())

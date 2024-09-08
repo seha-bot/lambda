@@ -53,7 +53,7 @@ pub fn run(
 
     Ok(match output_fmt {
         OutputFmt::Binary => expr.fmt_blc(),
-        OutputFmt::DeBruijn => expr.fmt_bruijin(),
+        OutputFmt::DeBruijn => expr.fmt_bruijn(),
         OutputFmt::Standard => parser_arg::blc_to_bytes(&expr.fmt_blc())?
             .iter()
             .map(|&x| x as char)
