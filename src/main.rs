@@ -21,6 +21,9 @@ struct Args {
 }
 
 fn main() -> Result<(), io::Error> {
+    lambda::new_runner::test();
+    return Ok(());
+
     let args = Args::parse();
 
     let input_fmt = match args.input_fmt.as_str() {
