@@ -2,6 +2,10 @@
 
 Don't forget about output-fmt. You disabled it to refactor things and probably forgot to enable it.
 
+Is "spicy" a good name for the project (because it's lambda calculus with extra spices)?
+
+ADD LICENCE!!
+
 # DEFECTS
 
 This compiles fine.

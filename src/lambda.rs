@@ -1,13 +1,10 @@
-use alloc::rc::Rc;
-use std::io::{self, Write};
-
-use runner::Expr;
 use thiserror::Error;
 
-mod parser_arg;
+mod byte_encoder;
+mod evaluator;
+mod parser_ast;
 mod parser_blc;
 mod parser_lc;
-mod runner;
 
 #[derive(Debug, Clone, Copy)]
 pub enum InputFmt {
@@ -15,12 +12,11 @@ pub enum InputFmt {
     Standard,
 }
 
-// #[derive(Debug, Clone, Copy)]
-// pub enum OutputFmt {
-//     Binary,
-//     DeBruijn,
-//     Standard,
-// }
+#[derive(Debug, Clone, Copy)]
+pub enum OutputFmt {
+    Bytes,
+    Bits,
+}
 
 #[derive(Error, Debug)]
 pub enum RunError {
@@ -28,60 +24,44 @@ pub enum RunError {
     Binary(#[from] parser_blc::ParseError),
     #[error("failed parsing input: {0}")]
     Standard(#[from] parser_lc::ParseError),
-    #[error("failed parsing output: {0}")]
-    Argument(#[from] parser_arg::ParseError),
+    #[error("runtime error: {0}")]
+    RuntimeError(#[from] parser_ast::ParseError),
     #[error("io error: {0}")]
-    IO(#[from] io::Error),
-    #[error("WHNF did not result in a list")]
-    NotReducedToList,
+    IO(#[from] std::io::Error),
 }
 
-pub fn run(prog: &str, arg: Option<&str>, input_fmt: InputFmt) -> Result<(), RunError> {
+pub fn run(
+    prog_raw: &str,
+    args_raw: Option<&str>,
+    input_fmt: InputFmt,
+    output_fmt: OutputFmt,
+) -> Result<(), RunError> {
     let prog = match input_fmt {
-        InputFmt::Binary => parser_blc::parse(prog)?,
-        InputFmt::Standard => parser_lc::parse(prog)?,
+        InputFmt::Binary => parser_blc::parse(prog_raw)?,
+        InputFmt::Standard => parser_lc::parse(prog_raw)?,
     };
 
-    let prog = if let Some(arg) = arg {
-        Expr::App(Box::new((
+    let prog = if let Some(arg) = args_raw {
+        evaluator::Term::App(Box::new((
             prog,
-            parser_blc::parse(&parser_arg::bytes_to_blc(arg.as_bytes()))?,
+            parser_blc::parse(&byte_encoder::bytes_to_blc(arg.as_bytes()))?,
         )))
     } else {
         prog
     };
 
-    let mut expr = prog;
-    while let Some((head, tail)) = uncons(expr.eval_lazy())? {
-        expr = tail;
-        // TODO: figure out if this evaluation strategy for head is ok
-        let c = parser_arg::blc_to_byte(&head.eval_lazy().eval_full().fmt_blc())?.0;
-        io::stdout().write_all(&[c])?;
+    let mut prog = evaluator::eval(Vec::new(), prog);
+    while let Some((head, tail)) = parser_ast::uncons(prog)? {
+        let head = head.eval();
+
+        let c = match output_fmt {
+            OutputFmt::Bytes => parser_ast::ast_to_byte(head)?,
+            OutputFmt::Bits if parser_ast::ast_to_bool(head)? => b'1',
+            OutputFmt::Bits => b'0',
+        };
+        std::io::Write::write_all(&mut std::io::stdout(), &[c])?;
+        prog = tail.eval();
     }
 
     Ok(())
-}
-
-fn uncons(expr: Expr) -> Result<Option<(Expr, Expr)>, RunError> {
-    if let Expr::Lam(x, body) = expr {
-        if let Expr::App(app) = *body {
-            let r = app.1;
-            if let Expr::App(app) = app.0 {
-                let l = app.1;
-                if let Expr::Var(var) = app.0 {
-                    if Rc::ptr_eq(&var, &x) {
-                        return Ok(Some((l, r)));
-                    }
-                }
-            }
-        } else if let Expr::Lam(y, body) = *body {
-            if let Expr::Var(var) = *body {
-                if Rc::ptr_eq(&var, &y) {
-                    return Ok(None);
-                }
-            }
-        }
-    }
-
-    Err(RunError::NotReducedToList)
 }
