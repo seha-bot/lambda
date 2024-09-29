@@ -2,12 +2,9 @@
 // 00 - two zeros => abstraction
 // 01ab - a and b are bit sequences => apply b to a (a b)
 
-use alloc::rc::Rc;
-use core::cell::RefCell;
-
 use thiserror::Error;
 
-use super::runner::Expr;
+use super::evaluator::Term;
 
 #[derive(Error, Debug, Clone, Copy)]
 pub enum ParseError {
@@ -19,28 +16,23 @@ pub enum ParseError {
     IncompleteStatement,
 }
 
-pub fn parse(prog: &str) -> Result<Expr, ParseError> {
-    let mut refs = Vec::new();
-    Ok(parse_impl(prog.as_bytes(), &mut refs, 0)?.0)
+pub fn parse(prog: &str) -> Result<Term, ParseError> {
+    Ok(parse_impl(prog.as_bytes(), 0)?.0)
 }
 
-fn parse_impl<'a>(
-    prog: &'a [u8],
-    refs: &mut Vec<Rc<RefCell<Option<Expr>>>>,
-    depth: usize,
-) -> Result<(Expr, &'a [u8]), ParseError> {
+fn parse_impl(prog: &[u8], depth: usize) -> Result<(Term, &[u8]), ParseError> {
     match prog {
         [b'0', b'0', tail @ ..] => {
-            let x = Rc::new(RefCell::new(None));
-            refs.push(Rc::clone(&x));
-            let (body, tail) = parse_impl(tail, refs, depth + 1)?;
-            refs.pop();
-            Ok((Expr::Lam(x, Box::new(body)), tail))
+            let (body, tail) = parse_impl(tail, depth + 1)?;
+            Ok((
+                Term::Lam(u32::try_from(depth).expect("failed cast"), Box::new(body)),
+                tail,
+            ))
         }
         [b'0', b'1', tail @ ..] => {
-            let (a, tail) = parse_impl(tail, refs, depth)?;
-            let (b, tail) = parse_impl(tail, refs, depth)?;
-            Ok((Expr::App(Box::new((a, b))), tail))
+            let (a, tail) = parse_impl(tail, depth)?;
+            let (b, tail) = parse_impl(tail, depth)?;
+            Ok((Term::App(Box::new((a, b))), tail))
         }
         mut prog => {
             let mut cnt = 0;
@@ -56,8 +48,8 @@ fn parse_impl<'a>(
                     return Err(ParseError::ZeroBruijnIndex);
                 }
 
-                match refs.get(depth.wrapping_sub(cnt)) {
-                    Some(x) => Ok((Expr::Var(Rc::clone(x)), prog)),
+                match depth.checked_sub(cnt) {
+                    Some(x) => Ok((Term::Var(u32::try_from(x).expect("failed cast")), prog)),
                     None => Err(ParseError::BruijnIndexOutOfBounds),
                 }
             } else {

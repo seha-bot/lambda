@@ -1,5 +1,3 @@
-use alloc::rc::Rc;
-use core::cell::RefCell;
 use std::collections::HashMap;
 
 use nom::{
@@ -14,7 +12,7 @@ use nom::{
 };
 use thiserror::Error;
 
-use super::runner::Expr;
+use super::evaluator::Term;
 
 // TODO: add better error messages after replacing nom
 #[derive(Error, Debug, Clone, Copy)]
@@ -25,7 +23,7 @@ pub enum ParseError {
     Final,
 }
 
-pub fn parse(s: &str) -> Result<Expr, ParseError> {
+pub fn parse(s: &str) -> Result<Term, ParseError> {
     let (_, prog) = preprocess(s).map_err(|_| ParseError::Preprocess)?;
 
     let mut env = HashMap::new();
@@ -83,12 +81,12 @@ fn preprocess(s: &str) -> IResult<&str, String> {
     Ok((s, body))
 }
 
-type Env<'a> = HashMap<&'a str, Rc<RefCell<Option<Expr>>>>;
+type Env<'a> = HashMap<&'a str, u32>;
 
-fn var<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
+fn var<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Term> {
     let (s, key) = terminated(identifier, multispace0)(s)?;
     if let Some(key_ref) = env.get(key) {
-        return Ok((s, Expr::Var(Rc::clone(key_ref))));
+        return Ok((s, Term::Var(*key_ref)));
     }
 
     // TODO: nom has awful errors, so please use a different parsing library
@@ -98,14 +96,14 @@ fn var<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
     )))
 }
 
-fn lambda<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
+fn lambda<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Term> {
     let (s, _) = terminated(char('\\'), multispace0)(s)?;
     let (s, key) = terminated(identifier, multispace0)(s)?;
     let (s, _) = terminated(char('.'), multispace0)(s)?;
 
-    let key_ref = Rc::new(RefCell::new(None));
+    let key_ref = u32::try_from(env.len()).expect("failed cast");
 
-    let prev = env.insert(key, Rc::clone(&key_ref));
+    let prev = env.insert(key, key_ref);
     let (s, body) = expr(env)(s)?;
     if let Some(prev) = prev {
         env.insert(key, prev);
@@ -113,10 +111,10 @@ fn lambda<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Expr> {
         env.remove(key);
     }
 
-    Ok((s, Expr::Lam(key_ref, Box::new(body))))
+    Ok((s, Term::Lam(key_ref, Box::new(body))))
 }
 
-fn term<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str, Expr> + 'b {
+fn term<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str, Term> + 'b {
     move |s| {
         lambda(env, s).or_else(|_| var(env, s)).or_else(|_| {
             terminated(
@@ -131,12 +129,12 @@ fn term<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str,
     }
 }
 
-fn expr<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str, Expr> + 'b {
+fn expr<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str, Term> + 'b {
     |s| {
         let (s, mut terms) = many1(term(env))(s)?;
         let expr = terms
             .drain(..)
-            .reduce(|a, b| Expr::App(Box::new((a, b))))
+            .reduce(|a, b| Term::App(Box::new((a, b))))
             .expect("many1 already asserts that this is Some, so you shouldn't see this");
 
         Ok((s, expr))
