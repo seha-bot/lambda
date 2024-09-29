@@ -1,12 +1,18 @@
-# NOTE (for me)
+# How to use
 
-Don't forget about output-fmt. You disabled it to refactor things and probably forgot to enable it.
+`cargo r examples/reverse.lc hello` -> `olleh`
 
-Is "spicy" a good name for the project (because it's lambda calculus with extra spices)?
+`cargo r -- --input-fmt=binary --output-fmt=bits examples/primes.blc 0` -> your pc will crash :)
 
-ADD LICENCE!!
+`cargo r -- --input-fmt=binary examples/echo.blc "Hello World"` -> `Hello World`
+
+`cargo r examples/repeat.lc 0 | head -c 5` -> `00000`
 
 # DEFECTS
+
+THE INTERPRETER IS SLOW! PLEASE SEEK HELP
+
+---
 
 This compiles fine.
 Should macros be checked?
@@ -14,19 +20,6 @@ Should macros be checked?
 ID = \x.y;
 \y.ID;
 ```
-
----
-
-Can't add execution policy.
-
-Proposal: lazy, eager, passthrough.
-
-I still don't know if lazy and eager should be separate concepts because my implementation is shite.
-
----
-
-Named parameter output format missing.
-De bruijn sucks for reading.
 
 ---
 

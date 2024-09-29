@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use thiserror::Error;
 
 mod byte_encoder;
@@ -50,7 +52,7 @@ pub fn run(
         prog
     };
 
-    let mut prog = evaluator::eval(Vec::new(), prog);
+    let mut prog = prog.eval();
     while let Some((head, tail)) = parser_ast::uncons(prog)? {
         let head = head.eval();
 
@@ -60,6 +62,7 @@ pub fn run(
             OutputFmt::Bits => b'0',
         };
         std::io::Write::write_all(&mut std::io::stdout(), &[c])?;
+        std::io::stdout().flush()?;
         prog = tail.eval();
     }
 

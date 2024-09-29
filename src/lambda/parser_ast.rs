@@ -1,6 +1,6 @@
-use super::evaluator::{eval, Binding, BoundTerm};
-
 use thiserror::Error;
+
+use super::evaluator::Term;
 
 #[derive(Error, Debug, Clone, Copy)]
 pub enum ParseError {
@@ -25,67 +25,67 @@ pub enum ParseError {
 }
 
 // mangled(\f.f a b) -> (a, b) | Nil
-pub fn uncons(term: BoundTerm) -> Result<Option<(Binding, Binding)>, ParseError> {
-    let BoundTerm::Lam(env, f_param, body) = term else {
+pub fn uncons(term: Term) -> Result<Option<(Term, Term)>, ParseError> {
+    let Term::Lam(f_param, body) = term else {
         return Err(ParseError::ExpectedLamForPair);
     };
 
-    match eval(env, body) {
-        BoundTerm::App(app) => {
+    match body.eval() {
+        Term::App(app) => {
             let (mangled_a, b) = *app;
 
-            let BoundTerm::App(app) = mangled_a else {
+            let Term::App(app) = mangled_a else {
                 return Err(ParseError::ExpectedAppTail);
             };
 
             let (f_var, a) = *app;
 
-            let BoundTerm::Var(f_var) = f_var else {
+            let Term::Var(f_var) = f_var else {
                 panic!("make me into a proper error");
             };
-            assert_eq!(f_var, f_param);
+            assert_eq!(f_var.as_ptr(), f_param.as_ptr());
 
             Ok(Some((a, b)))
         }
-        BoundTerm::Lam(env, y_param, body) => {
-            let BoundTerm::Var(y_var) = eval(env, body) else {
+        Term::Lam(y_param, body) => {
+            let Term::Var(y_var) = body.eval() else {
                 return Err(ParseError::ExpectedVar);
             };
 
-            if y_var == y_param {
+            if y_var.as_ptr() == y_param.as_ptr() {
                 Ok(None)
             } else {
                 Err(ParseError::BadVar)
             }
         }
-        BoundTerm::Var(_) => Err(ParseError::ExpectedAppOrNil),
+        Term::Var(_) => Err(ParseError::ExpectedAppOrNil),
     }
 }
 
 // TODO: the error can be more detailed
-pub fn ast_to_bool(term: BoundTerm) -> Result<bool, ParseError> {
-    let BoundTerm::Lam(env, l, body) = term else {
+pub fn ast_to_bool(term: Term) -> Result<bool, ParseError> {
+    let Term::Lam(l, body) = term else {
         return Err(ParseError::NonBooleanValue);
     };
 
-    let BoundTerm::Lam(env, r, body) = eval(env, body) else {
+    let Term::Lam(r, body) = body.eval() else {
         return Err(ParseError::NonBooleanValue);
     };
 
-    let BoundTerm::Var(x) = eval(env, body) else {
+    let Term::Var(x) = body.eval() else {
         return Err(ParseError::NonBooleanValue);
     };
 
-    if x == l {
+    if x.as_ptr() == l.as_ptr() {
         Ok(true)
-    } else if x == r {
+    } else if x.as_ptr() == r.as_ptr() {
         Ok(false)
     } else {
         Err(ParseError::NonBooleanValue)
     }
 }
 
-pub fn ast_to_byte(mut term: BoundTerm) -> Result<u8, ParseError> {
+pub fn ast_to_byte(mut term: Term) -> Result<u8, ParseError> {
     let mut x = 0;
 
     for _ in 0..8 {

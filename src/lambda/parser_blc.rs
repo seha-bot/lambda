@@ -2,6 +2,9 @@
 // 00 - two zeros => abstraction
 // 01ab - a and b are bit sequences => apply b to a (a b)
 
+use alloc::rc::Rc;
+use core::cell::RefCell;
+
 use thiserror::Error;
 
 use super::evaluator::Term;
@@ -17,21 +20,26 @@ pub enum ParseError {
 }
 
 pub fn parse(prog: &str) -> Result<Term, ParseError> {
-    Ok(parse_impl(prog.as_bytes(), 0)?.0)
+    let mut refs = Vec::new();
+    Ok(parse_impl(prog.as_bytes(), &mut refs, 0)?.0)
 }
 
-fn parse_impl(prog: &[u8], depth: usize) -> Result<(Term, &[u8]), ParseError> {
+fn parse_impl<'a>(
+    prog: &'a [u8],
+    refs: &mut Vec<Rc<RefCell<Option<Term>>>>,
+    depth: usize,
+) -> Result<(Term, &'a [u8]), ParseError> {
     match prog {
         [b'0', b'0', tail @ ..] => {
-            let (body, tail) = parse_impl(tail, depth + 1)?;
-            Ok((
-                Term::Lam(u32::try_from(depth).expect("failed cast"), Box::new(body)),
-                tail,
-            ))
+            let x = Rc::new(RefCell::new(None));
+            refs.push(Rc::clone(&x));
+            let (body, tail) = parse_impl(tail, refs, depth + 1)?;
+            refs.pop();
+            Ok((Term::Lam(x, Box::new(body)), tail))
         }
         [b'0', b'1', tail @ ..] => {
-            let (a, tail) = parse_impl(tail, depth)?;
-            let (b, tail) = parse_impl(tail, depth)?;
+            let (a, tail) = parse_impl(tail, refs, depth)?;
+            let (b, tail) = parse_impl(tail, refs, depth)?;
             Ok((Term::App(Box::new((a, b))), tail))
         }
         mut prog => {
@@ -48,8 +56,8 @@ fn parse_impl(prog: &[u8], depth: usize) -> Result<(Term, &[u8]), ParseError> {
                     return Err(ParseError::ZeroBruijnIndex);
                 }
 
-                match depth.checked_sub(cnt) {
-                    Some(x) => Ok((Term::Var(u32::try_from(x).expect("failed cast")), prog)),
+                match refs.get(depth.wrapping_sub(cnt)) {
+                    Some(x) => Ok((Term::Var(Rc::clone(x)), prog)),
                     None => Err(ParseError::BruijnIndexOutOfBounds),
                 }
             } else {

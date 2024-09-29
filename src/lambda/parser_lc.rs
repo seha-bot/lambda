@@ -1,3 +1,5 @@
+use alloc::rc::Rc;
+use core::cell::RefCell;
 use std::collections::HashMap;
 
 use nom::{
@@ -81,12 +83,12 @@ fn preprocess(s: &str) -> IResult<&str, String> {
     Ok((s, body))
 }
 
-type Env<'a> = HashMap<&'a str, u32>;
+type Env<'a> = HashMap<&'a str, Rc<RefCell<Option<Term>>>>;
 
 fn var<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Term> {
     let (s, key) = terminated(identifier, multispace0)(s)?;
     if let Some(key_ref) = env.get(key) {
-        return Ok((s, Term::Var(*key_ref)));
+        return Ok((s, Term::Var(Rc::clone(key_ref))));
     }
 
     // TODO: nom has awful errors, so please use a different parsing library
@@ -101,9 +103,9 @@ fn lambda<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Term> {
     let (s, key) = terminated(identifier, multispace0)(s)?;
     let (s, _) = terminated(char('.'), multispace0)(s)?;
 
-    let key_ref = u32::try_from(env.len()).expect("failed cast");
+    let key_ref = Rc::new(RefCell::new(None));
 
-    let prev = env.insert(key, key_ref);
+    let prev = env.insert(key, Rc::clone(&key_ref));
     let (s, body) = expr(env)(s)?;
     if let Some(prev) = prev {
         env.insert(key, prev);
