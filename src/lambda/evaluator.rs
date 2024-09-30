@@ -1,10 +1,7 @@
-use alloc::rc::Rc;
-use core::cell::RefCell;
-
 #[derive(Clone)]
 pub enum Term {
-    Var(Rc<RefCell<Option<Term>>>),
-    Lam(Rc<RefCell<Option<Term>>>, Box<Term>),
+    Var(u32),
+    Lam(Box<Term>),
     App(Box<(Term, Term)>),
 }
 
@@ -17,24 +14,19 @@ impl Term {
         self
     }
 
-    // I'm pretty sure this can be written without recursion
-    // Fuck that. Can this function be removed completely?
-    fn eval_var_refs(&mut self) {
+    fn sub_vars(&mut self, val: &Term, depth: u32) {
         match self {
             Term::Var(x) => {
-                let expr = (*x).borrow().clone();
-                if let Some(expr) = expr {
-                    *self = expr;
+                if let Some(0) = x.checked_sub(depth) {
+                    *self = val.clone();
                 }
             }
-            Term::Lam(var, body) => {
-                let x = (*var).borrow_mut().take();
-                body.eval_var_refs();
-                *(*var).borrow_mut() = x;
+            Term::Lam(body) => {
+                body.sub_vars(val, depth + 1);
             }
             Term::App(app) => {
-                app.0.eval_var_refs();
-                app.1.eval_var_refs();
+                app.0.sub_vars(val, depth);
+                app.1.sub_vars(val, depth);
             }
         };
     }
@@ -42,16 +34,15 @@ impl Term {
     fn eval_one(self) -> (Term, bool) {
         match self {
             var @ Term::Var(_) => (var, false),
-            lam @ Term::Lam(_, _) => (lam, false),
+            lam @ Term::Lam(_) => (lam, false),
             Term::App(app) => {
                 let (f, has_changed) = app.0.eval_one();
                 let x = app.1;
                 if has_changed {
                     return (Term::App(Box::new((f, x))), true);
                 }
-                if let Term::Lam(var, mut body) = f {
-                    *(*var).borrow_mut() = Some(x);
-                    body.eval_var_refs();
+                if let Term::Lam(mut body) = f {
+                    body.sub_vars(&x, 0);
                     (*body, true)
                 } else {
                     (Term::App(Box::new((f, x))), false)

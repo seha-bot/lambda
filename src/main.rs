@@ -3,7 +3,6 @@ use std::{fs, io, path::PathBuf, process::exit};
 use clap::Parser;
 use lambda::{InputFmt, OutputFmt, RunError};
 
-extern crate alloc;
 mod lambda;
 
 /// A lambda calculus parser & runner.

@@ -26,7 +26,7 @@ pub enum ParseError {
 
 // mangled(\f.f a b) -> (a, b) | Nil
 pub fn uncons(term: Term) -> Result<Option<(Term, Term)>, ParseError> {
-    let Term::Lam(f_param, body) = term else {
+    let Term::Lam(body) = term else {
         return Err(ParseError::ExpectedLamForPair);
     };
 
@@ -43,16 +43,16 @@ pub fn uncons(term: Term) -> Result<Option<(Term, Term)>, ParseError> {
             let Term::Var(f_var) = f_var else {
                 panic!("make me into a proper error");
             };
-            assert_eq!(f_var.as_ptr(), f_param.as_ptr());
+            assert_eq!(f_var, 0);
 
             Ok(Some((a, b)))
         }
-        Term::Lam(y_param, body) => {
+        Term::Lam(body) => {
             let Term::Var(y_var) = body.eval() else {
                 return Err(ParseError::ExpectedVar);
             };
 
-            if y_var.as_ptr() == y_param.as_ptr() {
+            if y_var == 0 {
                 Ok(None)
             } else {
                 Err(ParseError::BadVar)
@@ -64,11 +64,11 @@ pub fn uncons(term: Term) -> Result<Option<(Term, Term)>, ParseError> {
 
 // TODO: the error can be more detailed
 pub fn ast_to_bool(term: Term) -> Result<bool, ParseError> {
-    let Term::Lam(l, body) = term else {
+    let Term::Lam(body) = term else {
         return Err(ParseError::NonBooleanValue);
     };
 
-    let Term::Lam(r, body) = body.eval() else {
+    let Term::Lam(body) = body.eval() else {
         return Err(ParseError::NonBooleanValue);
     };
 
@@ -76,9 +76,9 @@ pub fn ast_to_bool(term: Term) -> Result<bool, ParseError> {
         return Err(ParseError::NonBooleanValue);
     };
 
-    if x.as_ptr() == l.as_ptr() {
+    if x == 1 {
         Ok(true)
-    } else if x.as_ptr() == r.as_ptr() {
+    } else if x == 0 {
         Ok(false)
     } else {
         Err(ParseError::NonBooleanValue)

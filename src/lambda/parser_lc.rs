@@ -1,5 +1,3 @@
-use alloc::rc::Rc;
-use core::cell::RefCell;
 use std::collections::HashMap;
 
 use nom::{
@@ -28,7 +26,7 @@ pub enum ParseError {
 pub fn parse(s: &str) -> Result<Term, ParseError> {
     let (_, prog) = preprocess(s).map_err(|_| ParseError::Preprocess)?;
 
-    let mut env = HashMap::new();
+    let mut env = Vec::new();
     lambda(&mut env, &prog)
         .map(|(_, res)| res)
         .map_err(|_| ParseError::Final)
@@ -83,12 +81,13 @@ fn preprocess(s: &str) -> IResult<&str, String> {
     Ok((s, body))
 }
 
-type Env<'a> = HashMap<&'a str, Rc<RefCell<Option<Term>>>>;
+type Env<'a> = Vec<&'a str>;
 
-fn var<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Term> {
-    let (s, key) = terminated(identifier, multispace0)(s)?;
-    if let Some(key_ref) = env.get(key) {
-        return Ok((s, Term::Var(Rc::clone(key_ref))));
+fn var<'a>(env: &mut Env<'a>, s_original: &'a str) -> IResult<&'a str, Term> {
+    let (s, key) = terminated(identifier, multispace0)(s_original)?;
+    if let Some(i) = env.iter().rev().position(|&x| x == key) {
+        let i = u32::try_from(i).expect("cast overflow");
+        return Ok((s, Term::Var(i)));
     }
 
     // TODO: nom has awful errors, so please use a different parsing library
@@ -103,17 +102,11 @@ fn lambda<'a>(env: &mut Env<'a>, s: &'a str) -> IResult<&'a str, Term> {
     let (s, key) = terminated(identifier, multispace0)(s)?;
     let (s, _) = terminated(char('.'), multispace0)(s)?;
 
-    let key_ref = Rc::new(RefCell::new(None));
-
-    let prev = env.insert(key, Rc::clone(&key_ref));
+    env.push(key);
     let (s, body) = expr(env)(s)?;
-    if let Some(prev) = prev {
-        env.insert(key, prev);
-    } else {
-        env.remove(key);
-    }
+    env.pop();
 
-    Ok((s, Term::Lam(key_ref, Box::new(body))))
+    Ok((s, Term::Lam(Box::new(body))))
 }
 
 fn term<'a, 'b>(env: &'b mut Env<'a>) -> impl FnMut(&'a str) -> IResult<&'a str, Term> + 'b {
